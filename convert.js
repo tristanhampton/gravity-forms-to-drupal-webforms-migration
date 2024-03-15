@@ -102,7 +102,7 @@ function convertToYAML(fields) {
 
       if (field.label) {
         // We don't want titles on Basic HTML
-        if (!type == 'content') {
+        if (type != 'content') {
           element['#title'] = field.label;
         }
       }
