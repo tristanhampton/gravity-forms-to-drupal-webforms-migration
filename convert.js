@@ -13,11 +13,13 @@ const fieldMap = {
   'page': 'wizard_page',
   'section': 'section',
   'text': 'textfield',
+  'textarea': '',
   'email': 'email',
   'content': 'markup',
   'select': 'select',
   'date': 'date',
   'radio': 'radios',
+  'fileupload': 'managed_file',
 };
 
 const generateFieldKey = (field, count) => {
@@ -45,18 +47,18 @@ function convertToYAML(fields) {
   const elements = {};
 
   const page = {
-    startPage: false,
-    endPage: false,
-    buildingPage: false,
+    start: false,
+    end: false,
+    building: false,
     key: '',
     count: 0,
     config: {},
   }
 
   const section = {
-    startSection: false,
-    endSection: false,
-    buildingSection: false,
+    start: false,
+    end: false,
+    building: false,
     key: '',
     count: '',
     config: {},
@@ -68,24 +70,20 @@ function convertToYAML(fields) {
   fields.forEach((field, index) => {
     fieldCount++;
 
-    page.startPage = field.type == 'page';
-    section.startSection = field.type == 'section';
-    page.endPage = index+1 < fields.length && fields[index + 1].type == 'page';
-    section.endSection = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
+    page.start = field.type == 'page';
+    section.start = field.type == 'section';
+    page.end = index+1 < fields.length && fields[index + 1].type == 'page';
+    section.end = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
     
     const fieldKey = generateFieldKey(field, fieldCount);
     const element = {};
     const options = {};
     const type = field.type;
 
-    if (page.startPage) {
-      console.log('starting new page, first element is: ', fields[index + 1].label)
-    }
-
     // Start a new page object if we're a page field
-    if (page.startPage) {
-      page.startPage = false;
-      page.buildingPage = true;
+    if (page.start) {
+      page.start = false;
+      page.building = true;
       page.key = fieldKey;
       page.count++;
       page.config = {};
@@ -94,11 +92,11 @@ function convertToYAML(fields) {
     }
 
     // Start with a new section object if we're a section field
-    if (section.startSection) {
+    if (section.start) {
       section.config = {};
       section.key = fieldKey;
-      section.startSection = false;
-      section.buildingSection = true;
+      section.start = false;
+      section.building = true;
       section.count++;
       section.config['#title'] = field.label;
       section.config['#type'] = fieldMap[type];
@@ -106,7 +104,7 @@ function convertToYAML(fields) {
     }
 
     // Build Element if not page or section
-    if (!section.startSection && !page.startPage && type != 'section' && type != 'page') {
+    if (!section.start && !page.start && type != 'section' && type != 'page') {
 
       if (field.label) {
         // We don't want titles on Basic HTML
@@ -165,7 +163,7 @@ function convertToYAML(fields) {
 
       // Gravity Forms Name Field
       if (type == 'name') {
-        element['#type'] = 'fieldset';
+        element['#type'] = 'flexbox';
 
         const firstName = {};
         firstName['#title'] = 'First Name';
@@ -182,33 +180,30 @@ function convertToYAML(fields) {
       }
 
       // Add element to appropriate object (page/top level)
-      if (section.buildingSection) {
+      if (section.building) {
         section.config[fieldKey] = element;
-      } else if(page.buildingPage && !buildingSection && !page.startPage) {
+      } else if(page.building && !section.building && !page.start) {
         page.config[fieldKey] = element;
       } else {
         elements[fieldKey] = element;
       }
     }
 
-    // Add finished page to top level elements
-    if(page.endPage && page.buildingPage) {
-      elements[page.key] = page.config;
-      return;
-    }
-
     // Add finished section to current page or top level elements
-    if (section.endSection && section.buildingSection) {
-      if (page.buildingPage) {
+    if (section.end && section.building) {
+      if (page.building) {
         page.config[section.key] = section.config;
       } else {
         elements[section.key] = section.config;
       }
 
-      section.buildingSection = false;
-      return
+      section.building = false;
     }
 
+    // Add finished page to top level elements
+    if(page.end && page.building) {
+      elements[page.key] = page.config;
+    }
   });
 
   return elements;
