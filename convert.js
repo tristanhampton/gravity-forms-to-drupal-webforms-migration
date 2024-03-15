@@ -3,9 +3,21 @@ const YAML = require('js-yaml');
 
 // Read Gravity Forms JSON export file
 const gravityFormsData = JSON.parse(fs.readFileSync('gravityforms-export-2024-03-14.json'));
+const START_WITH_PAGE = true;
 
 const formInfo = gravityFormsData['0'];
 const formFields = gravityFormsData['0']['fields'];
+
+if (START_WITH_PAGE) {
+  const startPage = {
+    "type": "page",
+    "id": 'start_page',
+    "label": "Start Page",
+    "adminLabel": "",
+  };
+
+  formFields.unshift(startPage);
+}
 
 // Map Gravity Forms field types to Drupal Webform field types
 // GF type: Drupal Type
@@ -108,7 +120,7 @@ function convertToYAML(fields) {
 
       if (field.label) {
         // We don't want titles on Basic HTML
-        if (type != 'content') {
+        if (type != 'content' && type !== 'html') {
           element['#title'] = field.label;
         }
       }
@@ -123,6 +135,19 @@ function convertToYAML(fields) {
   
       if (field.isRequired) {
         element['#required'] = field.isRequired;
+      }
+
+      if (field.maxLength) {
+        element['#maxlength'] = field.maxLength;
+      }
+
+      if (field.minLength) {
+        // NOTE: minLength from GF is an assumption, I haven't seen an example of this
+        element['#minLength'] = field.minLength;
+      }
+
+      if (field.placeholder) {
+        element['#placeholder'] = field.placeholder;
       }
 
       if (field.choices) {
@@ -149,9 +174,45 @@ function convertToYAML(fields) {
             }
 
             const key = getReferencedInput(fields, rule.fieldId);
-            rules.push({[key]: 
-              {value: rule.value}
-            })
+
+            switch (rule.operator) {
+              case 'is':
+                rules.push({
+                  [key]:{value: rule.value}
+                });
+                break;
+
+              case '>':
+                rules.push({
+                  [key]: {
+                    value: {
+                      greater: rule.value,
+                    }
+                  }
+                });
+                break;
+
+              // Cases below here are assumptions and untested
+              case '<':
+                rules.push({
+                  [key]: {
+                    value: {
+                      less: rule.value,
+                    }
+                  }
+                });
+                break;
+
+              case '<=':
+                rules.push({
+                  [key]: {
+                    value: {
+                      less_equal: rule.value,
+                    }
+                  }
+                });
+                break;
+            }
           });
 
 
