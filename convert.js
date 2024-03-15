@@ -21,6 +21,26 @@ const fieldMap = {
   'radio': 'radios',
 };
 
+const generateFieldKey = (field, count) => {
+  return field.label ? field.label.substring(0, 8).toLowerCase().replaceAll(/[^\w\s]/gi, '_').replaceAll(' ', '_') + `_${count}` : `${field.type}_${field.id}`;
+}
+
+const getReferencedInput = (fields, fieldID) => {
+  let input = 'not found';
+  let fieldCount = 0;
+  
+  fields.forEach(field => {
+    fieldCount++;
+    if (field.id == fieldID) {
+      const key = generateFieldKey(field, fieldCount);
+      input = `:input[name="${key}"]`;
+      return;
+    }
+  });
+
+  return input;
+}
+
 // Function to convert Gravity Forms JSON to Drupal Webform YAML
 function convertToYAML(fields) {
   const elements = {};
@@ -49,7 +69,7 @@ function convertToYAML(fields) {
     startSection = field.type == 'section';
     endPage = index+1 < fields.length && fields[index + 1].type == 'page';
     endSection = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
-    const fieldKey = field.label ? field.label.substring(0, 8).toLowerCase().replaceAll(/[^\w\s]/gi, '_').replaceAll(' ', '_') + `_${fieldCount}` : `${field.type}_${field.id}`;
+    const fieldKey = generateFieldKey(field, fieldCount);
     const element = {};
     const options = {};
     const type = field.type;
@@ -81,7 +101,10 @@ function convertToYAML(fields) {
     if (!startSection && !startPage && type != 'section' && type != 'page') {
 
       if (field.label) {
-        element['#title'] = field.label;
+        // We don't want titles on Basic HTML
+        if (!type == 'content') {
+          element['#title'] = field.label;
+        }
       }
   
       if (type) {
@@ -104,6 +127,35 @@ function convertToYAML(fields) {
         element['#options'] = options;
       }
 
+      // Handle conditional logic
+      if (field.conditionalLogic) {
+        const actionType = field.conditionalLogic.actionType;
+        const sourceRules = field.conditionalLogic.rules;
+        const conditionalLogic = {};
+
+        // Handle Show logic
+        if (actionType == 'show') {
+          const rules = []
+
+          sourceRules.forEach((rule, index) => {
+            if (index > 0) {
+              rules.push('or');
+            }
+
+            const key = getReferencedInput(fields, rule.fieldId);
+            rules.push({[key]: 
+              {value: rule.value}
+            })
+          });
+
+
+          conditionalLogic['visible'] = rules;
+        }
+
+        element['#states'] = conditionalLogic;
+      }
+
+      // Gravity Forms Name Field
       if (type == 'name') {
         element['#type'] = 'fieldset';
 
