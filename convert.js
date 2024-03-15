@@ -12,7 +12,6 @@ const formFields = gravityFormsData['0']['fields'];
 const fieldMap = {
   'page': 'wizard_page',
   'section': 'section',
-  'fieldset': 'fieldset', // assumption
   'text': 'textfield',
   'email': 'email',
   'content': 'markup',
