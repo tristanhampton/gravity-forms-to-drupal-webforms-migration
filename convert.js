@@ -51,25 +51,29 @@ function convertToYAML(fields) {
     buildingPage: false,
     key: '',
     count: 0,
-    page: {},
+    config: {},
   }
 
-  let section = {};
-  let startSection = false;
-  let endSection = false;
-  let buildingSection = false;
-  let sectionKey = '';
-  let sectionCount = '';
+  const section = {
+    startSection: false,
+    endSection: false,
+    buildingSection: false,
+    key: '',
+    count: '',
+    config: {},
+  };
   
   let fieldCount = 0;
 
   // Build each element
   fields.forEach((field, index) => {
     fieldCount++;
+
     page.startPage = field.type == 'page';
-    startSection = field.type == 'section';
+    section.startSection = field.type == 'section';
     page.endPage = index+1 < fields.length && fields[index + 1].type == 'page';
-    endSection = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
+    section.endSection = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
+    
     const fieldKey = generateFieldKey(field, fieldCount);
     const element = {};
     const options = {};
@@ -91,19 +95,19 @@ function convertToYAML(fields) {
     }
 
     // Start with a new section object if we're a section field
-    if (startSection) {
-      section = {};
-      sectionKey = fieldKey;
-      startSection = false;
-      buildingSection = true;
-      sectionCount++;
-      section['#title'] = field.label;
-      section['#type'] = fieldMap[type];
-      section['#description'] = field.description;
+    if (section.startSection) {
+      section.config = {};
+      section.key = fieldKey;
+      section.startSection = false;
+      section.buildingSection = true;
+      section.count++;
+      section.config['#title'] = field.label;
+      section.config['#type'] = fieldMap[type];
+      section.config['#description'] = field.description;
     }
 
     // Build Element if not page or section
-    if (!startSection && !page.startPage && type != 'section' && type != 'page') {
+    if (!section.startSection && !page.startPage && type != 'section' && type != 'page') {
 
       if (field.label) {
         // We don't want titles on Basic HTML
@@ -179,8 +183,8 @@ function convertToYAML(fields) {
       }
 
       // Add element to appropriate object (page/top level)
-      if (buildingSection) {
-        section[fieldKey] = element;
+      if (section.buildingSection) {
+        section.config[fieldKey] = element;
       } else if(page.buildingPage && !buildingSection && !page.startPage) {
         page.config[fieldKey] = element;
       } else {
@@ -195,14 +199,14 @@ function convertToYAML(fields) {
     }
 
     // Add finished section to current page or top level elements
-    if (endSection && buildingSection) {
+    if (section.endSection && section.buildingSection) {
       if (page.buildingPage) {
-        page.config[sectionKey] = section;
+        page.config[section.key] = section.config;
       } else {
-        elements[sectionKey] = section;
+        elements[section.key] = section.config;
       }
 
-      buildingSection = false;
+      section.buildingSection = false;
       return
     }
 
