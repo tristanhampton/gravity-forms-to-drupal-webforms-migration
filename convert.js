@@ -44,18 +44,19 @@ const getReferencedInput = (fields, fieldID) => {
 // Function to convert Gravity Forms JSON to Drupal Webform YAML
 function convertToYAML(fields) {
   const elements = {};
-  let page = {}
-  let startPage = false;
-  let endPage = false;
-  let startNewPage = false;
-  let buildingPage = false;
-  let pageKey = '';
-  let pageCount = 0;
+
+  const page = {
+    startPage: false,
+    endPage: false,
+    buildingPage: false,
+    key: '',
+    count: 0,
+    page: {},
+  }
 
   let section = {};
   let startSection = false;
   let endSection = false;
-  let startNewSection = false;
   let buildingSection = false;
   let sectionKey = '';
   let sectionCount = '';
@@ -65,24 +66,28 @@ function convertToYAML(fields) {
   // Build each element
   fields.forEach((field, index) => {
     fieldCount++;
-    startPage = field.type == 'page';
+    page.startPage = field.type == 'page';
     startSection = field.type == 'section';
-    endPage = index+1 < fields.length && fields[index + 1].type == 'page';
+    page.endPage = index+1 < fields.length && fields[index + 1].type == 'page';
     endSection = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
     const fieldKey = generateFieldKey(field, fieldCount);
     const element = {};
     const options = {};
     const type = field.type;
 
+    if (page.startPage) {
+      console.log('starting new page, first element is: ', fields[index + 1].label)
+    }
+
     // Start a new page object if we're a page field
-    if (startPage) {
-      startPage = false;
-      buildingPage = true;
-      page = {};
-      pageKey = fieldKey;
-      pageCount++;
-      page['#title'] = `Page ${pageCount}`;
-      page['#type'] = fieldMap[type];
+    if (page.startPage) {
+      page.startPage = false;
+      page.buildingPage = true;
+      page.key = fieldKey;
+      page.count++;
+      page.config = {};
+      page.config['#title'] = `Page ${page.count}`;
+      page.config['#type'] = fieldMap[type];
     }
 
     // Start with a new section object if we're a section field
@@ -98,7 +103,7 @@ function convertToYAML(fields) {
     }
 
     // Build Element if not page or section
-    if (!startSection && !startPage && type != 'section' && type != 'page') {
+    if (!startSection && !page.startPage && type != 'section' && type != 'page') {
 
       if (field.label) {
         // We don't want titles on Basic HTML
@@ -176,23 +181,23 @@ function convertToYAML(fields) {
       // Add element to appropriate object (page/top level)
       if (buildingSection) {
         section[fieldKey] = element;
-      } else if(buildingPage && !buildingSection && !startPage) {
-        page[fieldKey] = element;
+      } else if(page.buildingPage && !buildingSection && !page.startPage) {
+        page.config[fieldKey] = element;
       } else {
         elements[fieldKey] = element;
       }
     }
 
     // Add finished page to top level elements
-    if(endPage && buildingPage) {
-      elements[pageKey] = page;
+    if(page.endPage && page.buildingPage) {
+      elements[page.key] = page.config;
       return;
     }
 
     // Add finished section to current page or top level elements
     if (endSection && buildingSection) {
-      if (buildingPage) {
-        page[sectionKey] = section;
+      if (page.buildingPage) {
+        page.config[sectionKey] = section;
       } else {
         elements[sectionKey] = section;
       }
