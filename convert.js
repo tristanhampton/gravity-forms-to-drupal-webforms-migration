@@ -1,11 +1,12 @@
 const fs = require('fs');
 const YAML = require('js-yaml');
 
-// Read Gravity Forms JSON export file
+// Read Gravity Forms JSON export file, change name for new json export
 const gravityFormsData = JSON.parse(fs.readFileSync('gravityforms-export-2024-03-14.json'));
+
+// Set to true if every page is paginated
 const START_WITH_PAGE = true;
 
-const formInfo = gravityFormsData['0'];
 const formFields = gravityFormsData['0']['fields'];
 
 if (START_WITH_PAGE) {
@@ -34,10 +35,22 @@ const fieldMap = {
   'fileupload': 'managed_file',
 };
 
+/**
+ * Generate a unique field key for drupal
+ * @param {object} field the field object from gravity forms
+ * @param {int} count the current count for the number of fields we've gone through to set unique id's
+ * @returns unique field ID
+ */
 const generateFieldKey = (field, count) => {
   return field.label ? field.label.substring(0, 8).toLowerCase().replaceAll(/[^\w\s]/gi, '_').replaceAll(' ', '_') + `_${count}` : `${field.type}_${field.id}`;
 }
 
+/**
+ * Searches for the field by field ID and generates the input value for Drupal conditional fields
+ * @param {object} fields all fields provided by gravity forms
+ * @param {int} fieldID the field id we're searching for from gravity forms
+ * @returns Drupal conditional field markup
+ */
 const getReferencedInput = (fields, fieldID) => {
   let input = 'not found';
   let fieldCount = 0;
@@ -54,7 +67,11 @@ const getReferencedInput = (fields, fieldID) => {
   return input;
 }
 
-// Function to convert Gravity Forms JSON to Drupal Webform YAML
+/**
+ * 
+ * @param {object} fields the object containing all fields from gravity forms
+ * @returns drupal form object organized to work in Drupal Webforms
+ */
 function convertToYAML(fields) {
   const elements = {};
 
