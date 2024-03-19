@@ -2,10 +2,10 @@ const fs = require('fs');
 const YAML = require('js-yaml');
 
 // Read Gravity Forms JSON export file, change name for new json export
-const gravityFormsData = JSON.parse(fs.readFileSync('gravityforms-export-2024-03-14.json'));
+const gravityFormsData = JSON.parse(fs.readFileSync('gravityforms-export-2024-03-19(2).json'));
 
 // Set to true if every page is paginated
-const START_WITH_PAGE = true;
+const START_WITH_PAGE = false;
 
 const formFields = gravityFormsData['0']['fields'];
 
@@ -26,13 +26,16 @@ const fieldMap = {
   'page': 'wizard_page',
   'section': 'section',
   'text': 'textfield',
-  'textarea': '',
+  'textarea': 'textarea',
   'email': 'email',
   'content': 'markup',
   'select': 'select',
   'date': 'date',
   'radio': 'radios',
   'fileupload': 'managed_file',
+  'checkbox': 'checkbox',
+  'phone': 'tel',
+  'list': 'fieldset',
 };
 
 /**
@@ -54,7 +57,7 @@ const generateFieldKey = (field, count) => {
 const getReferencedInput = (fields, fieldID) => {
   let input = 'not found';
   let fieldCount = 0;
-  
+
   fields.forEach(field => {
     fieldCount++;
     if (field.id == fieldID) {
@@ -65,6 +68,206 @@ const getReferencedInput = (fields, fieldID) => {
   });
 
   return input;
+}
+
+/**
+ * Checks to see if the current group we're in is coming to an end
+ * @param {object} fields all fields from gravity forms
+ * @param {int} index the current index we're currently on in the converstion
+ * @param {string} type the gravity form group type we're checking for
+ * @returns {boolean} whether or not this group is ending
+ */
+const checkGroupEnd = (fields, index, type) => {
+  // check if at end of form
+  if (index + 1 == fields.length) {
+    return true;
+  }
+
+  let groupIsEnding = false;
+  let nextFieldType = fields[index + 1].type;
+
+  if (type == 'page') {
+    groupIsEnding = nextFieldType == 'page';
+  }
+
+  if (type == 'section') {
+    groupIsEnding = nextFieldType == 'section' || nextFieldType == 'page';
+  }
+
+  return groupIsEnding;
+}
+
+/**
+ * Builds an object representing a Drupal compatible element
+ * @param {object} field a single field object from gravity forms
+ * @param {int} fieldCount the current count of the field we're converting
+ * @returns {object} a drupal configured object representing the element
+ */
+const buildElement = (field, fieldCount) => {
+  const element = {};
+  const options = {};
+  const type = field.type;
+
+  if (field.label) {
+    // We don't want titles on Basic HTML
+    if (type != 'content' && type !== 'html') {
+      element['#title'] = field.label;
+    }
+  }
+
+  if (type) {
+    element['#type'] = fieldMap[field.type];
+  }
+
+  if (field.content) {
+    element['#markup'] = field.content;
+  }
+
+  if (field.isRequired) {
+    element['#required'] = field.isRequired;
+  }
+
+  if (field.maxLength) {
+    element['#maxlength'] = field.maxLength;
+  }
+
+  if (field.minLength) {
+    // NOTE: minLength from GF is an assumption, I haven't seen an example of this
+    element['#minLength'] = field.minLength;
+  }
+
+  if (field.placeholder) {
+    element['#placeholder'] = field.placeholder;
+  }
+
+  if (field.choices && type != 'list') {
+    field.choices.forEach(choice => {
+      options[choice.value] = choice.text;
+    });
+
+    element['#options'] = options;
+  }
+
+  // Handle conditional logic
+  if (field.conditionalLogic) {
+    const actionType = field.conditionalLogic.actionType;
+    const sourceRules = field.conditionalLogic.rules;
+    const conditionalLogic = {};
+
+    // Handle Show logic
+    if (actionType == 'show') {
+      const rules = []
+
+      sourceRules.forEach((rule, index) => {
+        if (index > 0) {
+          rules.push('or');
+        }
+
+        const key = getReferencedInput(fields, rule.fieldId);
+
+        switch (rule.operator) {
+          case 'is':
+            rules.push({
+              [key]: { value: rule.value }
+            });
+            break;
+
+          case '>':
+            rules.push({
+              [key]: {
+                value: {
+                  greater: rule.value,
+                }
+              }
+            });
+            break;
+
+          // Cases below here are assumptions and untested
+          case '<':
+            rules.push({
+              [key]: {
+                value: {
+                  less: rule.value,
+                }
+              }
+            });
+            break;
+
+          case '<=':
+            rules.push({
+              [key]: {
+                value: {
+                  less_equal: rule.value,
+                }
+              }
+            });
+            break;
+        }
+      });
+
+
+      conditionalLogic['visible'] = rules;
+    }
+
+    element['#states'] = conditionalLogic;
+  }
+
+  //--- SPECIAL CASES
+  // Gravity Forms Name Field
+  if (type == 'name') {
+    element['#type'] = 'flexbox';
+
+    const firstName = {};
+    firstName['#title'] = 'First Name';
+    firstName['#type'] = 'textfield';
+    firstName['#required'] = field.isRequired;
+
+    const lastName = {};
+    lastName['#title'] = 'First Name';
+    lastName['#type'] = 'textfield';
+    lastName['#required'] = field.isRequired;
+
+    element[`first_name_${fieldCount}`] = firstName;
+    element[`last_name_${fieldCount}`] = lastName;
+  }
+
+  // Gravity Forms HelloSign field
+  if (type == 'hellosign_signer') {
+    element['#type'] = 'section';
+
+    const name = {};
+    name['#title'] = 'Name';
+    name['#type'] = 'textfield';
+    name['#required'] = field.isRequired;
+
+    const email = {};
+    email['#title'] = 'Email';
+    email['#type'] = 'email';
+    email['#required'] = field.isRequired;
+
+    element[`name_${fieldCount}`] = name;
+    element[`email_${fieldCount}`] = email;
+
+  }
+
+  // Gravity Forms Lists
+  // these seem to just be a fieldset of text inputs
+  if (type == 'list') {
+    element['#type'] = 'fieldset';
+
+    field.choices.forEach((input, index) => {
+      const subElement = {};
+      const key = `${input.text.substring(0, 8).toLowerCase().replaceAll(/[^\w\s]/gi, '_').replaceAll(' ', '_')}_${fieldCount}_${index}`
+      subElement['#type'] = 'textfield';
+      subElement['#title'] = input.text;
+      subElement['#required'] = field.isRequired;
+
+      element[key] = subElement;
+    });
+  }
+  //--- END SPECIAL CASES
+
+  return element;
 }
 
 /**
@@ -92,7 +295,7 @@ function convertToYAML(fields) {
     count: '',
     config: {},
   };
-  
+
   let fieldCount = 0;
 
   // Build each element
@@ -101,13 +304,11 @@ function convertToYAML(fields) {
 
     page.start = field.type == 'page';
     section.start = field.type == 'section';
-    page.end = index+1 < fields.length && fields[index + 1].type == 'page';
-    section.end = index+1 < fields.length && fields[index + 1].type == 'section' || index+1 < fields.length && fields[index + 1].type == 'page';
-    
-    const fieldKey = generateFieldKey(field, fieldCount);
-    const element = {};
-    const options = {};
+    page.end = checkGroupEnd(fields, index, 'page');
+    section.end = checkGroupEnd(fields, index, 'section');
     const type = field.type;
+    const isElement = !section.start && !page.start && type != 'section' && type != 'page';
+    const fieldKey = generateFieldKey(field, fieldCount);
 
     // Start a new page object if we're a page field
     if (page.start) {
@@ -133,134 +334,14 @@ function convertToYAML(fields) {
     }
 
     // Build Element if not page or section
-    if (!section.start && !page.start && type != 'section' && type != 'page') {
+    if (isElement) {
 
-      if (field.label) {
-        // We don't want titles on Basic HTML
-        if (type != 'content' && type !== 'html') {
-          element['#title'] = field.label;
-        }
-      }
-  
-      if (type) {
-        element['#type'] = fieldMap[field.type];
-      }
-  
-      if (field.content) {
-        element['#markup'] = field.content;
-      }
-  
-      if (field.isRequired) {
-        element['#required'] = field.isRequired;
-      }
-
-      if (field.maxLength) {
-        element['#maxlength'] = field.maxLength;
-      }
-
-      if (field.minLength) {
-        // NOTE: minLength from GF is an assumption, I haven't seen an example of this
-        element['#minLength'] = field.minLength;
-      }
-
-      if (field.placeholder) {
-        element['#placeholder'] = field.placeholder;
-      }
-
-      if (field.choices) {
-        field.choices.forEach(choice => {
-          options[choice.value] = choice.text;
-        });
-
-        element['#options'] = options;
-      }
-
-      // Handle conditional logic
-      if (field.conditionalLogic) {
-        const actionType = field.conditionalLogic.actionType;
-        const sourceRules = field.conditionalLogic.rules;
-        const conditionalLogic = {};
-
-        // Handle Show logic
-        if (actionType == 'show') {
-          const rules = []
-
-          sourceRules.forEach((rule, index) => {
-            if (index > 0) {
-              rules.push('or');
-            }
-
-            const key = getReferencedInput(fields, rule.fieldId);
-
-            switch (rule.operator) {
-              case 'is':
-                rules.push({
-                  [key]:{value: rule.value}
-                });
-                break;
-
-              case '>':
-                rules.push({
-                  [key]: {
-                    value: {
-                      greater: rule.value,
-                    }
-                  }
-                });
-                break;
-
-              // Cases below here are assumptions and untested
-              case '<':
-                rules.push({
-                  [key]: {
-                    value: {
-                      less: rule.value,
-                    }
-                  }
-                });
-                break;
-
-              case '<=':
-                rules.push({
-                  [key]: {
-                    value: {
-                      less_equal: rule.value,
-                    }
-                  }
-                });
-                break;
-            }
-          });
-
-
-          conditionalLogic['visible'] = rules;
-        }
-
-        element['#states'] = conditionalLogic;
-      }
-
-      // Gravity Forms Name Field
-      if (type == 'name') {
-        element['#type'] = 'flexbox';
-
-        const firstName = {};
-        firstName['#title'] = 'First Name';
-        firstName['#type'] = 'textfield';
-        firstName['#required'] = field.isRequired;
-
-        const lastName = {};
-        lastName['#title'] = 'First Name';
-        lastName['#type'] = 'textfield';
-        lastName['#required'] = field.isRequired;
-
-        element[`first_name_${fieldCount}`] = firstName;
-        element[`last_name_${fieldCount}`] = lastName;
-      }
+      const element = buildElement(field, fieldCount);
 
       // Add element to appropriate object (page/top level)
       if (section.building) {
         section.config[fieldKey] = element;
-      } else if(page.building && !section.building && !page.start) {
+      } else if (page.building && !section.building && !page.start) {
         page.config[fieldKey] = element;
       } else {
         elements[fieldKey] = element;
@@ -279,7 +360,7 @@ function convertToYAML(fields) {
     }
 
     // Add finished page to top level elements
-    if(page.end && page.building) {
+    if (page.end && page.building) {
       elements[page.key] = page.config;
     }
   });
@@ -295,3 +376,5 @@ const webformYAML = convertToYAML(formFields);
 fs.writeFileSync('drupal-webform.yaml', YAML.dump(webformYAML));
 
 console.log('Conversion completed. Drupal Webform YAML file created.');
+console.log('');
+console.log('To add to Drupal, create a new webform and navigate to the "build" page. Open the "source" tab and paste the contents of the new YML and save.');
